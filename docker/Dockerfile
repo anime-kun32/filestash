@@ -31,9 +31,15 @@ FROM debian:stable-slim
 MAINTAINER mickael@kerjean.me
 WORKDIR /app/
 COPY --from=builder_backend /home/filestash/dist/ .
+
+# ADDITIONAL PDF + EMACS TOOLS
 RUN apt-get update > /dev/null && \
     apt-get install -y --no-install-recommends apt-utils && \
-    apt-get install -y curl ffmpeg libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev && \
+    apt-get install -y \
+        curl ffmpeg \
+        emacs-nox \
+        poppler-utils \
+        libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev && \
     useradd filestash && \
     chown -R filestash:filestash /app/ && \
     find /app/data/ -type d -exec chmod 770 {} \; && \
