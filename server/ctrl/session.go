@@ -44,7 +44,7 @@ func SessionGet(ctx *App, res http.ResponseWriter, req *http.Request) {
 	}
 	r.IsAuth = true
 	r.Home = NewString(home)
-	r.Backend = Hash(GenerateID(ctx.Session)+ctx.Session["path"], 20)
+	r.Backend = backendID(ctx.Session)
 	if ctx.Share.Id == "" && Config.Get("features.protection.enable_chromecast").Bool() {
 		r.Authorization = ctx.Authorization
 	}
@@ -126,11 +126,12 @@ func SessionAuthenticate(ctx *App, res http.ResponseWriter, req *http.Request) {
 	if Config.Get("features.protection.iframe").String() != "" {
 		res.Header().Set("bearer", obfuscate)
 	}
-	if home != "" {
-		SendSuccessResult(res, home)
-		return
-	}
-	SendSuccessResult(res, nil)
+	SendSuccessResult(res, Session{
+		IsAuth:        true,
+		Home:          NewString(home),
+		Backend:       backendID(session),
+		Authorization: obfuscate,
+	})
 }
 
 func SessionLogout(ctx *App, res http.ResponseWriter, req *http.Request) {
@@ -307,13 +308,14 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 	// - identity provider redirection uri. eg: oauth2, openid, ...
 	templateBind, err := plugin.Callback(formData, idpParams, res)
 	if err == ErrAuthenticationFailed {
+		Log.Warning("failed authentication - %s", err.Error())
 		http.Redirect(
 			res, req,
 			req.URL.Path+"?action=redirect",
 			http.StatusSeeOther,
 		)
 		return
-	} else if err != nil {
+	} else if err != nil && strings.HasPrefix(res.Header().Get("Content-Type"), "text/html") == false {
 		Log.Error("session::authMiddleware 'callback error - %s'", err.Error())
 		http.Redirect(
 			res, req,
@@ -321,7 +323,10 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 			http.StatusSeeOther,
 		)
 		return
+	} else if err != nil { // response handled directly within a plugin
+		return
 	}
+
 	templateBind["machine_id"] = GenerateMachineID()
 	for _, value := range os.Environ() {
 		pair := strings.SplitN(value, "=", 2)
@@ -499,4 +504,8 @@ func applyCookieRules(cookie *http.Cookie, req *http.Request) *http.Cookie {
 func applyCookieSameSiteRule(cookie *http.Cookie, sameSiteValue http.SameSite) *http.Cookie {
 	cookie.SameSite = sameSiteValue
 	return cookie
+}
+
+func backendID(session map[string]string) string {
+	return Hash(GenerateID(session)+session["path"], 20)
 }

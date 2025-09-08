@@ -1,12 +1,15 @@
 package plg_search_sqlitefts
 
 import (
+	"strings"
+
 	. "github.com/mickael-kerjean/filestash/server/common"
 )
 
 func init() {
 	Hooks.Register.Onload(func() {
 		SEARCH_ENABLE()
+		SEARCH_EXCLUSION()
 		SEARCH_PROCESS_MAX()
 		SEARCH_PROCESS_PAR()
 		SEARCH_REINDEX()
@@ -14,11 +17,6 @@ func init() {
 		MAX_INDEXING_FSIZE()
 		INDEXING_EXT()
 	})
-}
-
-var INDEXING_EXCLUSION = []string{
-	"/node_modules/", "/bower_components/",
-	"/.cache/", "/.npm/", "/.git/",
 }
 
 var SEARCH_ENABLE = func() bool {
@@ -30,13 +28,33 @@ var SEARCH_ENABLE = func() bool {
 		f.Type = "enable"
 		f.Target = []string{
 			"process_max", "process_par", "reindex_time",
-			"cycle_time", "max_size", "indexer_ext",
+			"cycle_time", "max_size", "indexer_ext", "folder_exclusion",
 		}
 		f.Description = "Enable/Disable full text search"
 		f.Placeholder = "Default: true"
 		f.Default = true
 		return f
 	}).Bool()
+}
+
+var SEARCH_EXCLUSION = func() []string {
+	listOfFolders := Config.Get("features.search.folder_exclusion").Schema(func(f *FormElement) *FormElement {
+		if f == nil {
+			f = &FormElement{}
+		}
+		f.Id = "folder_exclusion"
+		f.Name = "folder_exclusion"
+		f.Type = "text"
+		f.Description = "Exclude some specific folder from the crawl / index"
+		f.Placeholder = "Default: node_modules,bower_components,.cache,.npm,.git"
+		f.Default = "node_modules,bower_components,.cache,.npm,.git"
+		return f
+	}).String()
+	out := []string{}
+	for _, folder := range strings.Split(listOfFolders, ",") {
+		out = append(out, strings.TrimSpace(folder))
+	}
+	return out
 }
 
 var SEARCH_PROCESS_MAX = func() int {
@@ -91,7 +109,7 @@ var CYCLE_TIME = func() int {
 		f.Id = "cycle_time"
 		f.Name = "cycle_time"
 		f.Type = "number"
-		f.Description = "Time the indexer needs to spend for each cycle in seconds (discovery, indexing and maintenance)"
+		f.Description = "Time allocation for each cycle in seconds (discovery, indexing and maintenance)"
 		f.Placeholder = "Default: 10s"
 		f.Default = 10
 		return f
@@ -120,7 +138,7 @@ var INDEXING_EXT = func() string {
 		f.Id = "indexer_ext"
 		f.Name = "indexer_ext"
 		f.Type = "text"
-		f.Description = "File extension we want to see indexed"
+		f.Description = "Extensions that will be handled by the full text search engine"
 		f.Placeholder = "Default: org,txt,docx,pdf,md,form"
 		f.Default = "org,txt,docx,pdf,md,form"
 		return f

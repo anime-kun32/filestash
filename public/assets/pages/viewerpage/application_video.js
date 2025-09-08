@@ -2,7 +2,7 @@ import { createElement, onDestroy } from "../../lib/skeleton/index.js";
 import rxjs, { effect } from "../../lib/rx.js";
 import { animate, slideYIn } from "../../lib/animate.js";
 import { loadCSS, loadJS } from "../../helpers/loader.js";
-import { qs, qsa } from "../../lib/dom.js";
+import { qs, qsa, safe } from "../../lib/dom.js";
 import { settings_get, settings_put } from "../../lib/settings.js";
 import { ApplicationError } from "../../lib/error.js";
 import assert from "../../lib/assert.js";
@@ -24,7 +24,7 @@ const STATUS_BUFFERING = "BUFFERING";
 export default function(render, { mime, getFilename, getDownloadUrl }) {
     const $page = createElement(`
         <div class="component_videoplayer">
-            <component-menubar filename="${getFilename()}"></component-menubar>
+            <component-menubar filename="${safe(getFilename())}"></component-menubar>
             <div class="video_container">
                 <span>
                     <div class="video_screen video-state-pause is-casting-no">
@@ -60,26 +60,6 @@ export default function(render, { mime, getFilename, getDownloadUrl }) {
                         </div>
                     </div>
                 </span>
-
-                <div class="component_pager hidden">
-                    <div class="wrapper no-select">
-                        <span>
-                            <a href="/view/Videos/Animation Movie.webm">
-                                <img class="component_icon" draggable="false" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+CiAgPHBhdGggc3R5bGU9ImZpbGw6I2YyZjJmMjtmaWxsLW9wYWNpdHk6MTtzdHJva2Utd2lkdGg6MS41MTE4MTEwMjtzdHJva2UtbWl0ZXJsaW1pdDo0O3N0cm9rZS1kYXNoYXJyYXk6bm9uZSIgZD0ibSAxNiw3LjE2IC00LjU4LDQuNTkgNC41OCw0LjU5IC0xLjQxLDEuNDEgLTYsLTYgNiwtNiB6IiAvPgogIDxwYXRoIGZpbGw9Im5vbmUiIGQ9Ik0wLS4yNWgyNHYyNEgweiIgLz4KPC9zdmc+Cg==" alt="arrow_left_white">
-                            </a>
-                            <label class="pager">
-                                <form>
-                                    <input class="prevent" type="number" value="1" style="width: 12px;">
-                                </form>
-                                <span class="separator">/</span>
-                                <span>3</span>
-                            </label>
-                            <a href="/view/Videos/Animation Movie 2.webm">
-                              <img class="component_icon" draggable="false" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+CiAgPHBhdGggc3R5bGU9ImZpbGw6I2YyZjJmMjtmaWxsLW9wYWNpdHk6MTtzdHJva2Utd2lkdGg6MS41MTE4MTEwMjtzdHJva2UtbWl0ZXJsaW1pdDo0O3N0cm9rZS1kYXNoYXJyYXk6bm9uZSIgZD0iTTguNTkgMTYuMzRsNC41OC00LjU5LTQuNTgtNC41OUwxMCA1Ljc1bDYgNi02IDZ6IiAvPgogIDxwYXRoIGZpbGw9Im5vbmUiIGQ9Ik0wLS4yNWgyNHYyNEgweiIgLz4KPC9zdmc+Cg==" alt="arrow_right_white">
-                            </a>
-                        </span>
-                    </div>
-                </div>
             </div>
         </div>
     `);
@@ -389,7 +369,6 @@ export function init() {
     if (!window.overrides) window.overrides = {};
     return Promise.all([
         loadCSS(import.meta.url, "./application_video.css"),
-        loadCSS(import.meta.url, "./component_pager.css"),
         loadJS(import.meta.url, "/overrides/video-transcoder.js"),
     ]).then(async() => {
         if (typeof window.overrides["video-map-sources"] !== "function") window.overrides["video-map-sources"] = (s) => (s);

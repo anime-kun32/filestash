@@ -11,6 +11,7 @@ import { currentPath } from "./helper.js";
 import { setPermissions } from "./model_acl.js";
 import fscache from "./cache.js";
 import { ls as middlewareLs } from "./model_virtual_layer.js";
+import { tagFilter } from "./model_tag.js";
 
 /*
  * The naive approach would be to make an API call and refresh the screen after an action
@@ -27,7 +28,7 @@ import { ls as middlewareLs } from "./model_virtual_layer.js";
 
 const handleSuccess = (text) => rxjs.tap(() => notification.info(text));
 const handleError = rxjs.catchError((err) => {
-    notification.error(err);
+    notification.error(err.message);
     throw err;
 });
 const handleErrorRedirectLogin = rxjs.catchError((err) => {
@@ -118,7 +119,8 @@ export const ls = (path) => {
                 for (let i=0; i<curr.files.length; i++) {
                     if (curr.files[i].type !== prev.files[i].type ||
                         curr.files[i].size !== prev.files[i].size ||
-                        curr.files[i].name !== prev.files[i].name) {
+                        curr.files[i].name !== prev.files[i].name ||
+                        curr.files[i].offline !== prev.files[i].offline) {
                         refresh = true;
                         break;
                     }
@@ -128,6 +130,7 @@ export const ls = (path) => {
         }),
         rxjs.tap(({ permissions }) => setPermissions(path, permissions)),
         middlewareLs(path),
+        tagFilter(path),
     );
 };
 

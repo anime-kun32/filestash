@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strconv"
+	"strings"
 )
 
 func NewBool(t bool) *bool {
@@ -62,17 +62,26 @@ func NewStringFromInterface(val interface{}) string {
 		return val.(string)
 	case float64:
 		return fmt.Sprintf("%d", int64(val.(float64)))
+	case bool:
+		return fmt.Sprintf("%t", val.(bool))
+	case []interface{}:
+		list := val.([]interface{})
+		strSlice := make([]string, len(list))
+		for i, el := range list {
+			strSlice[i] = NewStringFromInterface(el)
+		}
+		return strings.Join(strSlice, ",")
 	default:
 		return ""
 	}
 }
 
 func NewReadCloserFromBytes(t []byte) io.ReadCloser {
-	return ioutil.NopCloser(bytes.NewReader(t))
+	return io.NopCloser(bytes.NewReader(t))
 }
 
 func NewReadCloserFromReader(r io.Reader) io.ReadCloser {
-	return ioutil.NopCloser(r)
+	return io.NopCloser(r)
 }
 
 func PrettyPrint(json_dirty []byte) []byte {

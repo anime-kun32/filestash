@@ -6,7 +6,6 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"os"
-	"os/exec"
 	"os/user"
 	"regexp"
 	"strings"
@@ -50,10 +49,13 @@ type FormElement struct {
 	Required    bool        `json:"required"`
 }
 
-func InitConfig() {
+func InitConfig() error {
 	Config = NewConfiguration()
-	Config.Load()
+	if err := Config.Load(); err != nil {
+		return err
+	}
 	Config.Initialise()
+	return nil
 }
 
 func NewConfiguration() Configuration {
@@ -78,6 +80,7 @@ func NewConfiguration() Configuration {
 					FormElement{Name: "upload_button", Type: "boolean", Default: false, Description: "Display the upload button on any device"},
 					FormElement{Name: "upload_pool_size", Type: "number", Default: 15, Description: "Maximum number of files upload in parallel. Default: 15"},
 					FormElement{Name: "upload_chunk_size", Type: "number", Default: 0, Description: "Size of Chunks for Uploads in MB."},
+					FormElement{Name: "buffer_size", Type: "select", Default: "medium", Opts: []string{"small", "medium", "large"}, Description: "I/O buffer size for transfers. Larger buffers boost throughput on 20 GbE+ networks but use more memory."},
 					FormElement{Name: "filepage_default_view", Type: "select", Default: "grid", Opts: []string{"list", "grid"}, Description: "Default layout for files and folder on the file page"},
 					FormElement{Name: "filepage_default_sort", Type: "select", Default: "type", Opts: []string{"type", "date", "name"}, Description: "Default order for files and folder on the file page"},
 					FormElement{Name: "cookie_timeout", Type: "number", Default: 60 * 24 * 7, Description: "Authentication Cookie expiration in minutes. Default: 60 * 24 * 7 = 1 week"},
@@ -218,11 +221,11 @@ func (this *Form) Iterator() []FormIterator {
 	return slice
 }
 
-func (this *Configuration) Load() {
+func (this *Configuration) Load() error {
 	cFile, err := LoadConfig()
 	if err != nil {
 		Log.Error("config::load %s", err)
-		return
+		return err
 	}
 
 	// Extract enabled backends
@@ -251,7 +254,7 @@ func (this *Configuration) Load() {
 			this.onChange[i].Listener <- nil
 		}
 	}()
-	return
+	return nil
 }
 
 type JSONIterator struct {
@@ -356,7 +359,6 @@ func (this *Configuration) Export() interface{} {
 		Name                    string            `json:"name"`
 		UploadButton            bool              `json:"upload_button"`
 		Connections             interface{}       `json:"connections"`
-		EnableShare             bool              `json:"enable_share"`
 		SharedLinkDefaultAccess string            `json:"share_default_access"`
 		SharedLinkRedirect      string            `json:"share_redirect"`
 		Logout                  string            `json:"logout"`
@@ -368,9 +370,11 @@ func (this *Configuration) Export() interface{} {
 		FilePageDefaultView     string            `json:"default_view"`
 		AuthMiddleware          []string          `json:"auth"`
 		Thumbnailer             []string          `json:"thumbnailer"`
-		EnableChromecast        bool              `json:"enable_chromecast"`
 		Origin                  string            `json:"origin"`
 		Version                 string            `json:"version"`
+		EnableChromecast        bool              `json:"enable_chromecast"`
+		EnableShare             bool              `json:"enable_share"`
+		EnableTags              bool              `json:"enable_tags"`
 	}{
 		Editor:                  this.Get("general.editor").String(),
 		ForkButton:              this.Get("general.fork_button").Bool(),
@@ -378,7 +382,6 @@ func (this *Configuration) Export() interface{} {
 		Name:                    this.Get("general.name").String(),
 		UploadButton:            this.Get("general.upload_button").Bool(),
 		Connections:             this.Conn,
-		EnableShare:             this.Get("features.share.enable").Bool(),
 		SharedLinkDefaultAccess: this.Get("features.share.default_access").String(),
 		SharedLinkRedirect:      this.Get("features.share.redirect").String(),
 		Logout:                  this.Get("general.logout").String(),
@@ -406,7 +409,6 @@ func (this *Configuration) Export() interface{} {
 			}
 			return tArray
 		}(),
-		EnableChromecast: this.Get("features.protection.enable_chromecast").Bool(),
 		Origin: func() string {
 			host := this.Get("general.host").String()
 			if host == "" {
@@ -418,7 +420,12 @@ func (this *Configuration) Export() interface{} {
 			}
 			return scheme + host
 		}(),
-		Version: BUILD_REF,
+		Version:          BUILD_REF,
+		EnableChromecast: this.Get("features.protection.enable_chromecast").Bool(),
+		EnableShare:      this.Get("features.share.enable").Bool(),
+		EnableTags: func() bool {
+			return Hooks.Get.Metadata() != nil
+		}(),
 	}
 }
 
@@ -563,17 +570,8 @@ func (this *Configuration) MarshalJSON() ([]byte, error) {
 				}
 				return "n/a"
 			}()},
-			FormElement{Name: "emacs", Type: "boolean", ReadOnly: true, Value: func() bool {
-				if _, err := exec.LookPath("emacs"); err == nil {
-					return true
-				}
-				return false
-			}()},
-			FormElement{Name: "pdftotext", Type: "boolean", ReadOnly: true, Value: func() bool {
-				if _, err := exec.LookPath("pdftotext"); err == nil {
-					return true
-				}
-				return false
+			FormElement{Name: "license", Type: "text", ReadOnly: true, Value: func() string {
+				return LICENSE
 			}()},
 		},
 	})

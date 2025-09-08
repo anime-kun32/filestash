@@ -66,15 +66,25 @@ type AuditQueryResult struct {
 	RenderHTML string `json:"render"`
 }
 
+const (
+	MetaModeTag = 1 << iota
+	MetaModeBookmark
+	MetaModeForm
+)
+
+type IMetadata interface {
+	Get(ctx *App, path string) ([]FormElement, error)
+	Set(ctx *App, path string, value []FormElement) error
+	Search(ctx *App, path string, facets map[string]any) (map[string][]FormElement, error)
+}
+
 type File struct {
-	FName     string `json:"name"`
-	FType     string `json:"type"`
-	FTime     int64  `json:"time"`
-	FSize     int64  `json:"size"`
-	FPath     string `json:"path,omitempty"`
-	CanRename *bool  `json:"can_rename,omitempty"`
-	CanMove   *bool  `json:"can_move_directory,omitempty"`
-	CanDelete *bool  `json:"can_delete,omitempty"`
+	FName   string `json:"name"`
+	FType   string `json:"type"`
+	FTime   int64  `json:"time"`
+	FSize   int64  `json:"size"`
+	FPath   string `json:"path,omitempty"`
+	Offline bool   `json:"offline,omitempty"`
 }
 
 func (f File) Name() string {
@@ -103,7 +113,7 @@ func (f File) IsDir() bool {
 	return true
 }
 func (f File) Sys() interface{} {
-	return nil
+	return f
 }
 
 func (f File) Path() string {

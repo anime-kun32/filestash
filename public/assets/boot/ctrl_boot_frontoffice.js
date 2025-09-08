@@ -3,7 +3,7 @@ import { loadJS } from "../helpers/loader.js";
 import { init as setup_translation } from "../locales/index.js";
 import { init as setup_config } from "../model/config.js";
 import { init as setup_plugin } from "../model/plugin.js";
-import { init as setup_chromecast } from "../model/chromecast.js";
+import { init as setup_cache } from "../pages/filespage/cache.js";
 import { report } from "../helpers/log.js";
 import { $error } from "./common.js";
 
@@ -11,7 +11,6 @@ export default async function main() {
     try {
         await Promise.all([
             setup_config().then((config) => Promise.all([
-                setup_chromecast(config),
                 setup_title(config),
                 window.self === window.top ? verify_origin(config) : verify_iframe_origin(config),
             ])),
@@ -22,6 +21,7 @@ export default async function main() {
             setup_history(),
             setup_polyfill(),
             setup_plugin(),
+            setup_cache(),
         ]);
         window.dispatchEvent(new window.Event("pagechange"));
     } catch (err) {

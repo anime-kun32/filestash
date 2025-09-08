@@ -1,5 +1,5 @@
 import { createElement } from "../lib/skeleton/index.js";
-import { qs } from "../lib/dom.js";
+import { qs, safe } from "../lib/dom.js";
 import { gid } from "../lib/random.js";
 import { ApplicationError } from "../lib/error.js";
 
@@ -21,7 +21,7 @@ export function formTmpl(options = {}) {
             const { label } = opts;
             return createElement(`
                 <fieldset>
-                    <legend class="no-select">${format(label)}</legend>
+                    <legend class="no-select">${safe(format(label))}</legend>
                 </fieldset>
             `);
         },
@@ -33,7 +33,7 @@ export function formTmpl(options = {}) {
             const { label } = opts;
             return createElement(`
                 <label>
-                    ${format(label)}
+                    ${safe(format(label))}
                 </label>
             `);
         },
@@ -68,6 +68,12 @@ export function $renderInput(options = {}) {
             $node.setAttribute("autocorrect", "off");
             $node.setAttribute("autocapitalize", "off");
             $node.setAttribute("spellcheck", "off");
+            if (type === "password") {
+                $node.setAttribute("data-lpignore", "true"); // LastPass
+                $node.setAttribute("data-1p-ignore", "true"); // 1Password
+                $node.setAttribute("data-bwignore", "true"); // Bitwarden
+                $node.setAttribute("data-protonpass-ignore", "true"); // Proton Pass
+            }
         });
         if (pattern) attrs.push(($node) => $node.setAttribute("pattern", pattern));
         if (required) attrs.push(($node) => $node.setAttribute("required", ""));
@@ -282,10 +288,10 @@ export function $renderInput(options = {}) {
             const draw = (val) => {
                 $preview.innerHTML = "";
                 if ((val || "").substring(0, 10) === "data:image") $preview.appendChild(createElement(`
-                    <img class="full-width" src="${val}" />
+                    <img class="full-width" src="${safe(val)}" />
                 `));
                 else if ((val || "").substring(0, 20) === "data:application/pdf") $preview.appendChild(createElement(`
-                    <object class="full-width" type="application/pdf" data="${val}" style="height:250px;" />
+                    <object class="full-width" type="application/pdf" data="${safe(val)}" style="height:250px;" />
                 `));
             };
             qs($file, "input").onchange = (e) => {

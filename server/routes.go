@@ -1,10 +1,9 @@
-package routes
+package server
 
 import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
-	"os"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -73,13 +72,15 @@ func Build(r *mux.Router, a App) {
 	middlewares = []Middleware{ApiHeaders, SecureHeaders, SecureOrigin, BodyParser, CanManageShare, PluginInjector}
 	share.HandleFunc("/{share}", NewMiddlewareChain(ShareUpsert, middlewares, a)).Methods("POST")
 
+	meta := r.PathPrefix(WithBase("/api/metadata")).Subrouter()
+	middlewares = []Middleware{ApiHeaders, SecureHeaders, SecureOrigin, WithPublicAPI, SessionStart, LoggedInOnly, PluginInjector}
+	meta.HandleFunc("", NewMiddlewareChain(MetaGet, middlewares, a)).Methods("GET")
+	meta.HandleFunc("", NewMiddlewareChain(MetaUpsert, middlewares, a)).Methods("POST")
+	meta.HandleFunc("/search", NewMiddlewareChain(MetaSearch, middlewares, a)).Methods("POST")
+
 	// Webdav server / Shared Link
 	middlewares = []Middleware{IndexHeaders, SecureHeaders, PluginInjector}
-	if os.Getenv("LEGACY") == "true" { // TODO: remove once migration is done
-		r.HandleFunc(WithBase("/s/{share}"), NewMiddlewareChain(LegacyIndexHandler, middlewares, a)).Methods("GET")
-	} else {
-		r.HandleFunc(WithBase("/s/{share}"), NewMiddlewareChain(ServeFrontofficeHandler, middlewares, a)).Methods("GET")
-	}
+	r.HandleFunc(WithBase("/s/{share}"), NewMiddlewareChain(ServeFrontofficeHandler, middlewares, a)).Methods("GET")
 	middlewares = []Middleware{WebdavBlacklist, SessionStart, PluginInjector}
 	r.PathPrefix(WithBase("/s/{share}")).Handler(NewMiddlewareChain(WebdavHandler, middlewares, a))
 	middlewares = []Middleware{ApiHeaders, SecureHeaders, RedirectSharedLoginIfNeeded, SessionStart, LoggedInOnly, PluginInjector}
@@ -91,16 +92,14 @@ func Build(r *mux.Router, a App) {
 	r.HandleFunc(WithBase("/api/plugin"), NewMiddlewareChain(PluginExportHandler, append(middlewares, PublicCORS), a)).Methods("GET", "OPTIONS")
 	r.HandleFunc(WithBase("/api/config"), NewMiddlewareChain(PublicConfigHandler, append(middlewares, PublicCORS), a)).Methods("GET", "OPTIONS")
 	middlewares = []Middleware{StaticHeaders, SecureHeaders, PublicCORS, PluginInjector}
-	if os.Getenv("LEGACY") == "true" { // TODO: remove after migration is done
-		r.PathPrefix(WithBase("/assets")).Handler(http.HandlerFunc(NewMiddlewareChain(LegacyStaticHandler("/"), middlewares, a))).Methods("GET", "OPTIONS")
-		r.HandleFunc(WithBase("/favicon.ico"), NewMiddlewareChain(LegacyStaticHandler("/assets/logo/"), middlewares, a)).Methods("GET")
-		r.HandleFunc(WithBase("/sw_cache.js"), NewMiddlewareChain(LegacyStaticHandler("/assets/worker/"), middlewares, a)).Methods("GET")
-	} else { // TODO: remove this after migration is done
-		r.PathPrefix(WithBase("/assets")).Handler(http.HandlerFunc(NewMiddlewareChain(ServeFile("/"), middlewares, a))).Methods("GET", "OPTIONS")
-		r.HandleFunc(WithBase("/sw.js"), http.HandlerFunc(NewMiddlewareChain(ServeFile("/assets/"), middlewares, a))).Methods("GET")
-		r.HandleFunc(WithBase("/favicon.ico"), NewMiddlewareChain(ServeFavicon, middlewares, a)).Methods("GET")
-		r.HandleFunc(WithBase("/plugin/{name}/{path:.+}"), NewMiddlewareChain(PluginStaticHandler, middlewares, a)).Methods("GET")
-	}
+	r.PathPrefix(WithBase("/assets/bundle.js")).Handler(http.HandlerFunc(NewMiddlewareChain(ServeBundle(), middlewares, a))).Methods("GET", "OPTIONS")
+	r.HandleFunc(WithBase("/assets/"+BUILD_REF+"/plugin/{name}.zip/{path:.+}"), NewMiddlewareChain(PluginStaticHandler, middlewares, a)).Methods("GET", "OPTIONS", "HEAD")
+	r.HandleFunc(WithBase("/assets/"+BUILD_REF+"/plugin/{name}.zip"), NewMiddlewareChain(PluginDownloadHandler, middlewares, a)).Methods("GET")
+	r.HandleFunc(WithBase("/assets/plugin/{name}.zip"), NewMiddlewareChain(PluginDownloadHandler, middlewares, a)).Methods("GET")
+	r.PathPrefix(WithBase("/assets/"+BUILD_REF)).Handler(http.HandlerFunc(NewMiddlewareChain(ServeFile("/"), middlewares, a))).Methods("GET", "OPTIONS")
+	r.PathPrefix(WithBase("/assets/")).Handler(http.HandlerFunc(NewMiddlewareChain(ServeFile("/"), middlewares, a))).Methods("GET", "OPTIONS")
+	r.HandleFunc(WithBase("/sw.js"), http.HandlerFunc(NewMiddlewareChain(ServeFile("/assets/"), middlewares, a))).Methods("GET")
+	r.HandleFunc(WithBase("/favicon.ico"), NewMiddlewareChain(ServeFavicon, middlewares, a)).Methods("GET")
 
 	// Other endpoints
 	middlewares = []Middleware{ApiHeaders, PluginInjector, PublicCORS}
@@ -110,28 +109,19 @@ func Build(r *mux.Router, a App) {
 	r.HandleFunc(WithBase("/robots.txt"), NewMiddlewareChain(RobotsHandler, []Middleware{}, a))
 	r.HandleFunc(WithBase("/manifest.json"), NewMiddlewareChain(ManifestHandler, []Middleware{}, a)).Methods("GET")
 	r.HandleFunc(WithBase("/.well-known/security.txt"), NewMiddlewareChain(WellKnownSecurityHandler, []Middleware{}, a)).Methods("GET")
-	r.HandleFunc(WithBase("/healthz"), NewMiddlewareChain(HealthHandler, []Middleware{}, a)).Methods("GET")
+	r.HandleFunc(WithBase("/healthz"), NewMiddlewareChain(HealthHandler, []Middleware{}, a)).Methods("GET", "HEAD")
 	r.HandleFunc(WithBase("/custom.css"), NewMiddlewareChain(CustomCssHandler, []Middleware{}, a)).Methods("GET")
 	r.PathPrefix(WithBase("/doc")).Handler(NewMiddlewareChain(DocPage, []Middleware{}, a)).Methods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-
-	if os.Getenv("DEBUG") == "true" {
-		initDebugRoutes(r)
-	}
-	initPluginsRoutes(r, &a)
 }
 
 func CatchAll(r *mux.Router, a App) {
 	middlewares := []Middleware{SecureHeaders, PluginInjector}
 	r.PathPrefix(WithBase("/admin")).Handler(http.HandlerFunc(NewMiddlewareChain(ServeBackofficeHandler, middlewares, a))).Methods("GET")
 	middlewares = []Middleware{IndexHeaders, SecureHeaders, PluginInjector}
-	if os.Getenv("LEGACY") == "true" { // TODO: remove once migration is done
-		r.PathPrefix("/").Handler(http.HandlerFunc(NewMiddlewareChain(LegacyIndexHandler, middlewares, a))).Methods("GET", "POST")
-	} else {
-		r.PathPrefix("/").Handler(http.HandlerFunc(NewMiddlewareChain(ServeFrontofficeHandler, middlewares, a))).Methods("GET", "POST")
-	}
+	r.PathPrefix("/").Handler(http.HandlerFunc(NewMiddlewareChain(ServeFrontofficeHandler, middlewares, a))).Methods("GET", "POST")
 }
 
-func initDebugRoutes(r *mux.Router) {
+func DebugRoutes(r *mux.Router) {
 	r.HandleFunc("/debug/pprof/", pprof.Index)
 	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
@@ -162,7 +152,7 @@ func initDebugRoutes(r *mux.Router) {
 	})
 }
 
-func initPluginsRoutes(r *mux.Router, a *App) {
+func PluginRoutes(r *mux.Router) {
 	// frontoffice overrides: it is the mean by which plugin can interact with the frontoffice
 	for _, obj := range Hooks.Get.FrontendOverrides() {
 		r.HandleFunc(obj, func(res http.ResponseWriter, req *http.Request) {

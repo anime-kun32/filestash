@@ -7,48 +7,53 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/mickael-kerjean/filestash"
-	. "github.com/mickael-kerjean/filestash/server"
+	"github.com/mickael-kerjean/filestash/server"
 	. "github.com/mickael-kerjean/filestash/server/common"
-	. "github.com/mickael-kerjean/filestash/server/ctrl"
+	"github.com/mickael-kerjean/filestash/server/ctrl"
+	"github.com/mickael-kerjean/filestash/server/model"
 	_ "github.com/mickael-kerjean/filestash/server/plugin"
 )
 
 func main() {
-	var (
-		router *mux.Router = mux.NewRouter()
-		app                = App{}
-	)
-	Build(router, app)
-	Run(router, app)
+	Run(mux.NewRouter(), App{})
 }
 
-func Run(routes *mux.Router, app App) {
-	// Routes are served via plugins to avoid getting stuck with plain HTTP. The idea is to
-	// support many more protocols in the future: HTTPS, HTTP2, TOR or whatever that sounds
-	// fancy I don't know much when this got written: IPFS, solid, ...
+func Run(router *mux.Router, app App) {
 	Log.Info("Filestash %s starting", APP_VERSION)
+	check(InitLogger(), "Logger init failed. err=%s")
+	check(InitConfig(), "Config init failed. err=%s")
+	check(model.PluginDiscovery(), "Plugin Discovery failed. err=%s")
+	check(ctrl.InitPluginList(embed.EmbedPluginList, model.PLUGINS), "Plugin Initialisation failed. err=%s")
 	if len(Hooks.Get.Starter()) == 0 {
-		Log.Warning("No starter plugin available")
-		os.Exit(1)
-		return
+		check(ErrNotFound, "Missing starter plugin. err=%s")
 	}
-	InitLogger()
-	InitConfig()
-	InitPluginList(embed.EmbedPluginList)
 	for _, obj := range Hooks.Get.HttpEndpoint() {
-		obj(routes, &app)
+		obj(router, &app)
 	}
 	for _, fn := range Hooks.Get.Onload() {
 		fn()
 	}
-	CatchAll(routes, app)
+	server.Build(router, app)
+	server.PluginRoutes(router)
+	server.CatchAll(router, app)
+	if os.Getenv("DEBUG") == "true" {
+		server.DebugRoutes(router)
+	}
 	var wg sync.WaitGroup
 	for _, obj := range Hooks.Get.Starter() {
 		wg.Add(1)
 		go func() {
-			obj(routes)
+			obj(router)
 			wg.Done()
 		}()
 	}
 	wg.Wait()
+}
+
+func check(err error, msg string) {
+	if err == nil {
+		return
+	}
+	Log.Error(msg, err.Error())
+	os.Exit(1)
 }

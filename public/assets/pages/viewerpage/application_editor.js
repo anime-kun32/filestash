@@ -1,8 +1,9 @@
 import { createElement, onDestroy } from "../../lib/skeleton/index.js";
 import rxjs, { effect } from "../../lib/rx.js";
 import { animate, slideXIn, opacityOut } from "../../lib/animate.js";
-import { qs } from "../../lib/dom.js";
+import { qs, safe } from "../../lib/dom.js";
 import { get as getConfig } from "../../model/config.js";
+import { load as loadPlugin } from "../../model/plugin.js";
 import { createLoader } from "../../components/loader.js";
 import { createModal, MODAL_RIGHT_BUTTON } from "../../components/modal.js";
 import { loadCSS, loadJS } from "../../helpers/loader.js";
@@ -21,10 +22,12 @@ import "../../components/icon.js";
 
 const TIME_BEFORE_ABORT_EDIT = 5000;
 
-export default async function(render, { acl$, getFilename, getDownloadUrl }) {
+class IEditor {}
+
+export default async function(render, { acl$, getFilename, getDownloadUrl, mime }) {
     const $page = createElement(`
         <div class="component_ide">
-            <component-menubar filename="${getFilename()}" class="hidden"></component-menubar>
+            <component-menubar filename="${safe(getFilename())}" class="hidden"></component-menubar>
             <div class="component_editor hidden"></div>
             <button is="component-fab" class="hidden"></button>
         </div>
@@ -106,6 +109,11 @@ export default async function(render, { acl$, getFilename, getDownloadUrl }) {
                 }),
                 rxjs.tap((editor) => requestAnimationFrame(() => editor.refresh())),
             );
+        }),
+        rxjs.mergeMap(async(editor) => {
+            const loader = await loadPlugin(mime);
+            if (loader) new (await loader(IEditor, { mime, $menubar: $dom.menubar(), getFilename, getDownloadUrl }))(editor);
+            return editor;
         }),
         rxjs.catchError(ctrlError()),
         rxjs.share(),

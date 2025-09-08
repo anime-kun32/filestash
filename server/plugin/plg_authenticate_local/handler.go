@@ -2,9 +2,8 @@ package plg_authenticate_local
 
 import (
 	_ "embed"
+	"html/template"
 	"net/http"
-	"net/url"
-	"text/template"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
 )
@@ -67,20 +66,15 @@ func UserManagementHandler(ctx *App, res http.ResponseWriter, req *http.Request)
 		}
 		return
 	}
-
-	referer := ""
-	if u, err := url.Parse(req.Header.Get("referer")); err == nil {
-		referer = u.Path
-	}
 	template.
 		Must(template.New("app").Parse(Page(PAGE))).
 		Execute(res, struct {
 			Users       []User
 			CurrentUser User
-			Referer     string
+			BackURL     string
 		}{
 			Users:       users,
 			CurrentUser: currentUser,
-			Referer:     referer,
+			BackURL:     WithBase("/admin/backend"),
 		})
 }

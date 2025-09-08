@@ -139,18 +139,27 @@
     z-index: 1;
 }
 .component_mobilefileupload input[type="file"] {
-    width: 0.1px;
-    height: 0.1px;
-    opacity: 0;
-    overflow: hidden;
     position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    appearance: none;
     z-index: -1;
+}
+.component_mobilefileupload input[type="file"]:focus-visible {
+    background: rgba(0, 0, 0, 0.8);
+    outline: 2px solid;
+}
+.component_mobilefileupload input[type="file"]::file-selector-button {
+    display: none;
 }
 .component_mobilefileupload input[type="file"]:focus + label, .component_mobilefileupload input[type="file"] + label:hover {
     opacity: 0.95;
 }
 .component_mobilefileupload input[type="file"] + label {
-    display: inline-block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
     cursor: pointer;
     background: #57595A;
     border-radius: 50%;
@@ -161,17 +170,32 @@
 }
 .component_mobilefileupload input[type="file"] + label:hover {
     transition: background 0.4s;
-    background: var(--primary) radial-gradient(circle, transparent 1%, var(--emphasis-secondary) 1%) center/15000%;
+    filter: brightness(0.95);
+}
+.component_mobilefileupload input[type="file"] + label:hover::before {
+    content: "";
+    width: inherit;
+    height: inherit;
+    position: absolute;
+    border-radius: 100%;
+    animation: halofab 0.8s ease-in-out;
+    z-index: -1;
+}
+@keyframes halofab {
+    0% { border: 1px solid transparent; }
+    100% { border: 25px solid rgba(0,0,0,0.1); opacity: 0 }
 }
 .component_mobilefileupload input[type="file"] + label:active {
-    background-color: #00000033;
-    background-size: 100%;
-    transition: background 0s;
+    filter: brightness(0.8);
 }
 .component_mobilefileupload input[type="file"] + label .component_icon {
     width: 24px;
     height: 24px;
     padding: 13px;
+}
+.component_mobilefileupload button {
+    padding: 0;
+    border-radius: inherit;
 }
 
 .mobilefileupload-appear {

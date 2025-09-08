@@ -12,12 +12,7 @@ export function qsa($node, selector) {
 
 export function safe(str) {
     if (typeof str !== "string") return "";
-
     const $div = document.createElement("div");
     $div.textContent = str;
-    return ($div.innerHTML || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+    return ($div.innerHTML || "").replaceAll("\"", "&quot;");
 }

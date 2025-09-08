@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
@@ -11,15 +12,6 @@ import (
 
 	"github.com/gorilla/mux"
 )
-
-func init() {
-	Hooks.Register.Onload(func() {
-		if err := model.PluginDiscovery(); err != nil {
-			Log.Error("Plugin Discovery failed. err=%s", err.Error())
-			os.Exit(1)
-		}
-	})
-}
 
 func PluginExportHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
 	plgExports := map[string][]string{}
@@ -32,12 +24,12 @@ func PluginExportHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
 				}
 				plgExports[module["mime"]] = []string{
 					module["application"],
-					WithBase(JoinPath("/plugin/", name+index)),
+					WithBase(JoinPath("/assets/"+BUILD_REF+"/plugin/", filepath.Join(name+".zip", index))),
 				}
 			}
 		}
 	}
-	SendSuccessResult(res, plgExports)
+	SendSuccessResultWithEtagAndGzip(res, req, plgExports)
 }
 
 func PluginStaticHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
@@ -75,4 +67,17 @@ func PluginStaticHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
 
 	SendErrorResult(res, err)
 	return
+}
+
+func PluginDownloadHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
+	f, err := os.Open(JoinPath(
+		GetAbsolutePath(PLUGIN_PATH),
+		mux.Vars(req)["name"]+".zip",
+	))
+	if err != nil {
+		SendErrorResult(res, err)
+		return
+	}
+	io.Copy(res, f)
+	f.Close()
 }

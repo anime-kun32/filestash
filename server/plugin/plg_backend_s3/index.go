@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -31,6 +32,7 @@ type S3Backend struct {
 	params     map[string]string
 	Context    context.Context
 	threadSize int
+	timeout    time.Duration
 }
 
 func init() {
@@ -42,10 +44,11 @@ func (this S3Backend) Init(params map[string]string, app *App) (IBackend, error)
 	if params["encryption_key"] != "" && len(params["encryption_key"]) != 32 {
 		return nil, NewError(fmt.Sprintf("Encryption key needs to be 32 characters (current: %d)", len(params["encryption_key"])), 400)
 	}
-	if params["region"] == "" {
-		params["region"] = "us-east-2"
+	region := params["region"]
+	if region == "" {
+		region = "us-east-1"
 		if strings.HasSuffix(params["endpoint"], ".cloudflarestorage.com") {
-			params["region"] = "auto"
+			region = "auto"
 		}
 	}
 	creds := []credentials.Provider{}
@@ -58,7 +61,7 @@ func (this S3Backend) Init(params map[string]string, app *App) (IBackend, error)
 	}
 	if params["role_arn"] != "" {
 		creds = append(creds, &stscreds.AssumeRoleProvider{
-			Client:   sts.New(session.Must(session.NewSessionWithOptions(session.Options{Config: aws.Config{Region: aws.String(params["region"])}}))),
+			Client:   sts.New(session.Must(session.NewSessionWithOptions(session.Options{Config: aws.Config{Region: aws.String(region)}}))),
 			RoleARN:  params["role_arn"],
 			Duration: stscreds.DefaultDuration,
 		})
@@ -73,10 +76,14 @@ func (this S3Backend) Init(params map[string]string, app *App) (IBackend, error)
 		Credentials:                   credentials.NewChainCredentials(creds),
 		CredentialsChainVerboseErrors: aws.Bool(true),
 		S3ForcePathStyle:              aws.Bool(true),
-		Region:                        aws.String(params["region"]),
+		Region:                        aws.String(region),
 	}
 	if params["endpoint"] != "" {
 		config.Endpoint = aws.String(params["endpoint"])
+	}
+	var timeout time.Duration
+	if secs, err := strconv.Atoi(params["timeout"]); err == nil {
+		timeout = time.Duration(secs) * time.Second
 	}
 	threadSize, err := strconv.Atoi(params["number_thread"])
 	if err != nil {
@@ -90,6 +97,7 @@ func (this S3Backend) Init(params map[string]string, app *App) (IBackend, error)
 		client:     s3.New(session.New(config)),
 		Context:    app.Context,
 		threadSize: threadSize,
+		timeout:    timeout,
 	}
 	return backend, nil
 }
@@ -118,7 +126,7 @@ func (this S3Backend) LoginForm() Form {
 				Placeholder: "Advanced",
 				Target: []string{
 					"s3_region", "s3_endpoint", "s3_role_arn", "s3_session_token",
-					"s3_path", "s3_encryption_key", "s3_number_thread",
+					"s3_path", "s3_encryption_key", "s3_number_thread", "s3_timeout",
 				},
 			},
 			FormElement{
@@ -163,6 +171,12 @@ func (this S3Backend) LoginForm() Form {
 				Type:        "text",
 				Placeholder: "Num. Thread",
 			},
+			FormElement{
+				Id:          "s3_timeout",
+				Name:        "timeout",
+				Type:        "number",
+				Placeholder: "List Object Timeout",
+			},
 		},
 	}
 }
@@ -189,15 +203,15 @@ func (this S3Backend) Ls(path string) (files []os.FileInfo, err error) {
 		}
 		for _, bucket := range b.Buckets {
 			files = append(files, &File{
-				FName:   *bucket.Name,
-				FType:   "directory",
-				FTime:   bucket.CreationDate.Unix(),
-				CanMove: NewBool(false),
+				FName: *bucket.Name,
+				FType: "directory",
+				FTime: bucket.CreationDate.Unix(),
 			})
 		}
 		return files, nil
 	}
 	client := s3.New(this.createSession(p.bucket))
+	start := time.Now()
 	err = client.ListObjectsV2PagesWithContext(
 		this.Context,
 		&s3.ListObjectsV2Input{
@@ -214,11 +228,16 @@ func (this S3Backend) Ls(path string) (files []os.FileInfo, err error) {
 				if object.Size != nil {
 					size = *object.Size
 				}
+				isOffline := false
+				if object.StorageClass != nil && *object.StorageClass == "GLACIER" {
+					isOffline = true
+				}
 				files = append(files, &File{
-					FName: filepath.Base(*object.Key),
-					FType: "file",
-					FTime: object.LastModified.Unix(),
-					FSize: size,
+					FName:   filepath.Base(*object.Key),
+					FType:   "file",
+					FTime:   object.LastModified.Unix(),
+					FSize:   size,
+					Offline: isOffline,
 				})
 			}
 			for _, object := range objs.CommonPrefixes {
@@ -227,6 +246,9 @@ func (this S3Backend) Ls(path string) (files []os.FileInfo, err error) {
 					FType: "directory",
 					FTime: 0,
 				})
+			}
+			if this.timeout > 0 && time.Since(start) > this.timeout {
+				return false
 			}
 			return aws.BoolValue(objs.IsTruncated)
 		},
@@ -260,6 +282,8 @@ func (this S3Backend) Cat(path string) (io.ReadCloser, error) {
 			return nil, NewError("This file is encrypted file, you need the correct key!", 400)
 		} else if awsErr.Code() == "AccessDenied" {
 			return nil, ErrNotAllowed
+		} else if awsErr.Code() == "InvalidObjectState" {
+			return nil, ErrNotReachable
 		}
 		return nil, err
 	}
@@ -503,27 +527,22 @@ func (this S3Backend) Save(path string, file io.Reader) error {
 }
 
 func (this S3Backend) createSession(bucket string) *session.Session {
-	newParams := map[string]string{"bucket": bucket}
-	for k, v := range this.params {
-		newParams[k] = v
-	}
-	c := S3Cache.Get(newParams)
-	if c == nil {
-		res, err := this.client.GetBucketLocation(&s3.GetBucketLocationInput{
-			Bucket: aws.String(bucket),
-		})
-		if err != nil {
-			this.config.Region = aws.String("us-east-1")
-		} else {
-			if res.LocationConstraint == nil {
-				this.config.Region = aws.String("us-east-1")
-			} else {
+	if this.params["region"] == "" {
+		newParams := map[string]string{"bucket": bucket}
+		for k, v := range this.params {
+			newParams[k] = v
+		}
+		if c := S3Cache.Get(newParams); c == nil {
+			res, err := this.client.GetBucketLocation(&s3.GetBucketLocationInput{
+				Bucket: aws.String(bucket),
+			})
+			if err == nil && res.LocationConstraint != nil {
 				this.config.Region = res.LocationConstraint
 			}
+			S3Cache.Set(newParams, this.config.Region)
+		} else {
+			this.config.Region = c.(*string)
 		}
-		S3Cache.Set(newParams, this.config.Region)
-	} else {
-		this.config.Region = c.(*string)
 	}
 	sess := session.New(this.config)
 	return sess

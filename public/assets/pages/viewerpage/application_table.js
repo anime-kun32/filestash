@@ -1,6 +1,6 @@
-import { createElement, nop } from "../../lib/skeleton/index.js";
+import { createElement } from "../../lib/skeleton/index.js";
 import rxjs, { effect } from "../../lib/rx.js";
-import { qs, qsa } from "../../lib/dom.js";
+import { qs, qsa, safe } from "../../lib/dom.js";
 import ajax from "../../lib/ajax.js";
 import { loadCSS } from "../../helpers/loader.js";
 import t from "../../locales/index.js";
@@ -19,10 +19,10 @@ class ITable {
     getBody() { throw new Error("NOT_IMPLEMENTED"); }
 }
 
-export default async function(render, { mime, getDownloadUrl = nop, getFilename = nop, hasMenubar = true, acl$ = rxjs.EMPTY }) {
+export default async function(render, { mime, getDownloadUrl, getFilename, hasMenubar = true, acl$ = rxjs.EMPTY }) {
     const $page = createElement(`
         <div class="component_tableviewer">
-            <component-menubar filename="${getFilename()}" class="${!hasMenubar && "hidden"}"></component-menubar>
+            <component-menubar filename="${safe(getFilename())}" class="${!hasMenubar && "hidden"}"></component-menubar>
             <div class="component_table_container">
                 <table class="table">
                     <thead class="thead"></thead>
@@ -55,7 +55,7 @@ export default async function(render, { mime, getDownloadUrl = nop, getFilename 
             if (!loader) throw new TypeError(`unsupported mimetype "${mime}"`);
             const [, url] = loader;
             const module = await import(url);
-            let table = new (await module.default(ITable))(response, { $menubar });
+            let table = new (await module.default(ITable, { $menubar }))(response);
             if (typeof table.then === "function") table = await table;
             STATE.header = table.getHeader();
             STATE.body = table.getBody();
@@ -238,8 +238,12 @@ function resizeLastColumnIfNeeded({ $target, $childs, padding = 0 }) {
 function sortBy(rows, ascending, key) {
     const o = ascending ? 1 : -1;
     return rows.sort((a, b) => {
-        if (a[key] === b[key]) return 0;
-        else if (a[key] < b[key]) return -o;
-        return o;
+        let diff = a[key] - b[key];
+        if (isNaN(diff)) {
+            if (a[key] === b[key]) diff = 0;
+            else if (a[key] < b[key]) diff = -1;
+            else diff = 1;
+        }
+        return o*diff;
     });
 }

@@ -2,7 +2,7 @@ import { createElement, createRender } from "../lib/skeleton/index.js";
 import { toHref, fromHref, navigate } from "../lib/skeleton/router.js";
 import { forwardURLParams } from "../lib/path.js";
 import rxjs, { effect, applyMutation } from "../lib/rx.js";
-import { qs } from "../lib/dom.js";
+import { qs, safe } from "../lib/dom.js";
 import t from "../locales/index.js";
 
 import { AjaxError, ApplicationError } from "../lib/error.js";
@@ -13,7 +13,7 @@ export default function(render) {
     let hasBack = window.self === window.top;
     if (!render) {
         render = createRender(document.body);
-        try { render = createRender(qs(document.body, "[role=\"main\"]")); }
+        try { render = createRender(qs(document.body, "#app")); }
         catch (err) { hasBack = false; }
     }
 
@@ -38,7 +38,7 @@ export default function(render) {
                 <div class="component_container">
                     <div class="error-page">
                         <h1>${t("Oops!")}</h1>
-                        <h2>${t(msg)}</h2>
+                        <h2>${t(safe(msg))}</h2>
                         <p>
                             <button class="light" data-bind="details">${t("More details")}</button>
                             <button class="primary" data-bind="refresh">${t("Reload")}</button>
